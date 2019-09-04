@@ -1,3 +1,4 @@
-## rk3399 ##
+## rk3399 study ##
+author : zhang hui 
 
 
