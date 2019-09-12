@@ -1,4 +1,4 @@
-## rk3399-roc-pc ##
+## ROC-RK3399-PC  ##
 
 2019-09-06 add led driver v1.0                   
 
