@@ -15,7 +15,7 @@
 #include <linux/of_gpio.h> 
 #include <linux/interrupt.h>
 #include <linux/poll.h>
-
+#include <linux/semaphore.h>
 
 static int gpio;
 static int major;
@@ -25,13 +25,16 @@ static int irq_num;
 
 static int rn_to_user;
 
-/* 定义等待队列头部 */
-static volatile int ev_press = 0;
-static DECLARE_WAIT_QUEUE_HEAD(key_wait_queue);
+static struct fasync_struct *async_queue;
+
+static struct semaphore sem;
+
 
 static int rk_key_open (struct inode *node, struct file *pfile)
 {
-	
+	int res;
+	/* 获取信号量 */
+	res = down_interruptible(&sem);
 	return 0;
 }
 
@@ -40,39 +43,28 @@ static ssize_t rk_key_read (struct file *pfile, char __user * buf, size_t size, 
 	int res;
 		
 	res = copy_to_user(buf, &rn_to_user, sizeof(rn_to_user));
+	
 	return sizeof(rn_to_user);
 }
 
+static int rk_key_fasync (int fd, struct file *pfile, int mode)
+{
+	return fasync_helper(fd, pfile, mode, &async_queue);
+}
 
 static int rk_key_release (struct inode *node, struct file *pfile)
 {
-	
+	/* 释放信号量 */
+	up(&sem);
 	return 0;
 }
-
-unsigned int rk_key_poll (struct file *pfile, struct poll_table_struct *wait)
-{
-	unsigned int mask = 0;
-
-	/* 把本进程挂到这个等待队列上 */
-	poll_wait(pfile, &key_wait_queue, wait);
-
-	if (ev_press)
-		mask |= POLLIN | POLLRDNORM;
-	
-	ev_press = 0;
-	return mask;
-}
-
 
 static irqreturn_t rk_key_irq(int irq, void *dev_id)
 {
 	rn_to_user++;
-
-	/* 唤醒等待队列上的进程 */
-	ev_press = 1;
-	wake_up_interruptible(&key_wait_queue);
 	
+	/* 发送信号 */
+	kill_fasync(&async_queue, SIGIO, POLL_IN);
 	return IRQ_HANDLED;
 }
 
@@ -82,7 +74,7 @@ static struct file_operations my_key_fops = {
 	.open     = rk_key_open,
 	.read     = rk_key_read,
 	.release  = rk_key_release,
-	.poll     = rk_key_poll,
+	.fasync   = rk_key_fasync,
 };
 
 
@@ -113,6 +105,9 @@ static int rk_key_probe(struct platform_device *dev)
 	major = register_chrdev(0, "mykey", &my_key_fops);
 	key_cls = class_create(THIS_MODULE, "mykey");
 	key_dev = device_create(key_cls,   NULL, MKDEV(major, 0), NULL, "key"); 	/* /dev/key */
+
+	/* 初始化信号量 */
+	sema_init (&sem, 1);
 	
 	printk(KERN_INFO "%s\n", __func__);
 	return 0;

@@ -14,7 +14,6 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h> 
 #include <linux/interrupt.h>
-#include <linux/poll.h>
 
 
 static int gpio;
@@ -31,18 +30,29 @@ static DECLARE_WAIT_QUEUE_HEAD(key_wait_queue);
 
 static int rk_key_open (struct inode *node, struct file *pfile)
 {
-	
 	return 0;
 }
 
 static ssize_t rk_key_read (struct file *pfile, char __user * buf, size_t size, loff_t *off)
 {	
 	int res;
+
+	if (pfile->f_flags & O_NONBLOCK)
+	{
+		if (!ev_press)
+			return -EAGAIN;
+	}
+	else 
+	{
+		/* 添加到等待队列，休眠， ev_press == 0 */
+		wait_event_interruptible(key_wait_queue, ev_press);
+	}
 		
 	res = copy_to_user(buf, &rn_to_user, sizeof(rn_to_user));
+	ev_press = 0;
+	
 	return sizeof(rn_to_user);
 }
-
 
 static int rk_key_release (struct inode *node, struct file *pfile)
 {
@@ -50,29 +60,12 @@ static int rk_key_release (struct inode *node, struct file *pfile)
 	return 0;
 }
 
-unsigned int rk_key_poll (struct file *pfile, struct poll_table_struct *wait)
-{
-	unsigned int mask = 0;
-
-	/* 把本进程挂到这个等待队列上 */
-	poll_wait(pfile, &key_wait_queue, wait);
-
-	if (ev_press)
-		mask |= POLLIN | POLLRDNORM;
-	
-	ev_press = 0;
-	return mask;
-}
-
-
 static irqreturn_t rk_key_irq(int irq, void *dev_id)
 {
 	rn_to_user++;
-
-	/* 唤醒等待队列上的进程 */
 	ev_press = 1;
+	/* 唤醒休眠进程 ev_press == 1*/
 	wake_up_interruptible(&key_wait_queue);
-	
 	return IRQ_HANDLED;
 }
 
@@ -82,7 +75,6 @@ static struct file_operations my_key_fops = {
 	.open     = rk_key_open,
 	.read     = rk_key_read,
 	.release  = rk_key_release,
-	.poll     = rk_key_poll,
 };
 
 

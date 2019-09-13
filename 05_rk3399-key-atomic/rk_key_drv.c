@@ -25,14 +25,21 @@ static int irq_num;
 
 static int rn_to_user;
 
-/* 定义等待队列头部 */
-static volatile int ev_press = 0;
-static DECLARE_WAIT_QUEUE_HEAD(key_wait_queue);
+static struct fasync_struct *async_queue;
+
+atomic_t canopen = ATOMIC_INIT(1);     //定义原子变量v并初始化为0
 
 static int rk_key_open (struct inode *node, struct file *pfile)
 {
-	
-	return 0;
+	int res;
+	res = atomic_dec_and_test(&canopen); // 自减操作后测试是否为0，0返回true, 不为0返回false
+	if (res)
+		return 0;
+	else 
+	{
+		atomic_inc(&canopen);
+		return -EBUSY;
+	}
 }
 
 static ssize_t rk_key_read (struct file *pfile, char __user * buf, size_t size, loff_t *off)
@@ -40,39 +47,27 @@ static ssize_t rk_key_read (struct file *pfile, char __user * buf, size_t size, 
 	int res;
 		
 	res = copy_to_user(buf, &rn_to_user, sizeof(rn_to_user));
+	
 	return sizeof(rn_to_user);
 }
 
+static int rk_key_fasync (int fd, struct file *pfile, int mode)
+{
+	return fasync_helper(fd, pfile, mode, &async_queue);
+}
 
 static int rk_key_release (struct inode *node, struct file *pfile)
 {
-	
+	atomic_inc(&canopen);
 	return 0;
 }
-
-unsigned int rk_key_poll (struct file *pfile, struct poll_table_struct *wait)
-{
-	unsigned int mask = 0;
-
-	/* 把本进程挂到这个等待队列上 */
-	poll_wait(pfile, &key_wait_queue, wait);
-
-	if (ev_press)
-		mask |= POLLIN | POLLRDNORM;
-	
-	ev_press = 0;
-	return mask;
-}
-
 
 static irqreturn_t rk_key_irq(int irq, void *dev_id)
 {
 	rn_to_user++;
-
-	/* 唤醒等待队列上的进程 */
-	ev_press = 1;
-	wake_up_interruptible(&key_wait_queue);
 	
+	/* 发送信号 */
+	kill_fasync(&async_queue, SIGIO, POLL_IN);
 	return IRQ_HANDLED;
 }
 
@@ -82,7 +77,8 @@ static struct file_operations my_key_fops = {
 	.open     = rk_key_open,
 	.read     = rk_key_read,
 	.release  = rk_key_release,
-	.poll     = rk_key_poll,
+	
+	.fasync   = rk_key_fasync,
 };
 
 
