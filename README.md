@@ -30,6 +30,10 @@
 
 - 支持阻塞与非阻塞访问
 
+**2019-09-12 add key driver 08**     
+
+- 支持定时器按键消抖
+
 
 ### author : hui zhang ###
 ### hexo : tjpuzhanghui.github.io ###
