@@ -36,7 +36,7 @@
 
 **2019-09-15 add spi oled driver(01) 09**     
 
-- oled驱动ok    
+- spi驱动-oled驱动 ok    
 
 
 ![实物图](1.jpg)
